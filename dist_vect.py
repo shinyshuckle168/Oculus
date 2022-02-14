@@ -1,5 +1,5 @@
 import time
-from fov_vect5 import *
+from fov_vect import *
 
 # calculating area distortion
 start = time.time()

@@ -3,8 +3,33 @@ from mpl_toolkits.mplot3d import Axes3D
 from pyproj import Geod, Proj, transform
 
 def get_intersections(across, along, cam, rot_mat):
-    # finds intersection of a ray from the camera with the earth  
+    '''
+    Finds the intersection of rays from the camera with the earth.  
     
+    Given the off nadir angles of rays and camera parameters, uses the quadratic formula to find the intersection of the rays with an ellipsoid modelling the Earth.
+    
+    Parameters
+    ----------
+    across : ndarray
+        4*N by M array containing the components of the off nadir angle (radians) in the across track direction. Each element represents a different vertex. Rows are snapshots in time; each is associated with a different camera position and orientation.
+    along : ndarray
+        4*N by M array containing the components of the off nadir angle (radians) in the along track direction. Each element represents a different vertex. Rows are snapshots in time; each is associated with a different camera position and orientation.
+    cam : ndarray
+        3 by 4*N array containing ECEF coordinates (meters) of the camera. 
+    rot_mat : ndarray
+        3 by 3 by 4*N array containing the orientation of the camera with respect to the ECEF frame in the form of normalized rotation matrices. By convention, the second column is the vector in the direction of the instantaneous velocity, the third column is the vector along the optical axis pointing towards the scanline, and the first column is the cross product of the second and third columns.
+
+    Returns
+    -------
+    ndarray
+        3 by 4*N by M array of the vertices of each scanline/pixel in ECEF coordinates (meters).
+    
+    Notes
+    -----
+    `rot_mat` and `cam` are extended in `get_area` so that entries exist for each vertex and not just for each scanline/pixel.
+    Uses WGS84 for ellipsoid model and ECEF coordinates.
+    '''
+
     x, y, z = np.tan(along), np.tan(across), np.ones((across.shape[0],across.shape[1]))
 
     # unit vector from cam to point on earth 
@@ -21,7 +46,34 @@ def get_intersections(across, along, cam, rot_mat):
     return np.repeat(cam[:, :, np.newaxis], u.shape[2], axis=2) + d*u
 
 def get_vertices(across, along, fov, cam, rot_mat):
-    #finds the coordinates of the corners of the scan line 
+    '''
+    Finds the coordinates of the vertices of the scanlines/pixels.
+
+    Given the off nadir angles and camera parameters, calculates the off nadir angles of each vertex. Then calculates the coordinates of the vertices using `get_intersections`.
+
+    Parameters 
+    ----------
+    across : ndarray
+        N by M array containing the components of the off nadir angle (radians) in the across track direction. Each element represents a different scanline/pixel. Rows are snapshots in time; each is associated with a different camera position and orientation.
+    along : ndarray
+        N by M array containing the components of the off nadir angle (radians) in the along track direction. Each element represents a different scanline/pixel. Rows are snapshots in time; each is associated with a different camera position and orientation.
+    fov : array-like
+        Two element array with the field of views (radians) of the scanline/pixel in both the across and along track directions.
+    cam : ndarray
+        3 by 4*N array containing ECEF coordinates (meters) of the camera. 
+    rot_mat : ndarray
+        3 by 3 by 4*N array containing the orientation of the camera with respect to the ECEF frame in the form of normalized rotation matrices. By convention, the second column is the vector in the direction of the instantaneous velocity, the third column is the vector along the optical axis pointing towards the scanline, and the first column is the cross product of the second and third columns.
+
+    Returns
+    -------
+    ndarray
+        3 by 4*N by M array of the vertices of each scanline/pixel in ECEF coordinates (meters).
+
+    Notes
+    -----
+    `rot_mat` and `cam` are extended in `get_area` so that entries exist for each vertex and not just for each scanline/pixel.
+    Uses WGS84 for ECEF coordinates.
+    '''
     
     # off nadir angles of vertices
     x0_across = across + fov[0]/2
@@ -49,21 +101,65 @@ def get_vertices(across, along, fov, cam, rot_mat):
 
     return get_intersections(vertices_across, vertices_along, cam, rot_mat)
 
-def get_lat_long(vertices, rot_mat):
-    # computes longitude and latitude of a point with coordinates wrt camera
+def get_lat_long(vertices):
+    '''
+    Computes latitude and longitude coordinates of the vertices found by `get_vertices`.
 
-    # transforms points from wrt camera to wrt earth
-    vertices_prime = np.einsum('ijk,jkb->ikb', rot_mat, vertices)
+    Uses Pyproj to transform ECEF coordinates of the vertices to latitude longitude coordinates.
+
+    Parameters
+    ----------
+    vertices : ndarray
+        3 by 4*N by M array of the vertices of each scanline/pixel in ECEF coordinates (meters).
+
+    Returns
+    -------
+    ndarray
+        2 by 4*N by M array of the vertices of each scanline/pixel in latitude and longitude coordinates (degrees). 
+
+    Notes 
+    -----
+    Uses WGS84 for ECEF and latitude/longitude coordinates.
+    '''
 
     # converts cartesian coordinates to latitude and longitude
-    lat,long,alt = transform(INPROJ,OUTPROJ,vertices_prime[0].flatten(),vertices_prime[1].flatten(),vertices_prime[2].flatten())
-    lat = lat.reshape(vertices_prime.shape[1],vertices_prime.shape[2])
-    long = long.reshape(vertices_prime.shape[1],vertices_prime.shape[2])
+    lat,long,alt = transform(INPROJ,OUTPROJ,vertices[0].flatten(),vertices[1].flatten(),vertices[2].flatten())
+    lat = lat.reshape(vertices.shape[1],vertices.shape[2])
+    long = long.reshape(vertices.shape[1],vertices.shape[2])
 
     return np.stack((lat,long))
 
 def get_area(across, along, fov, cam, rot_mat):
-    # computes area of the scanline from the latitude and longitude of its vertices
+    '''
+    Compute projected scanline areas and vertice coordinates.
+
+    Given off nadir angles and camera parameters, first computes the coordinates of the vertices of each scanline/pixel using the functions `get_vertices` and `get_lat_long`. Then uses the Pyproj library to compute the surface area of the Earth bounded by those vertices.
+
+    Parameters
+    ----------
+    across : ndarray
+        N by M array containing the components of the off nadir angle (radians) in the across track direction. Each element represents a different scanline/pixel. Rows are snapshots in time; each is associated with a different camera position and orientation.
+    along : ndarray
+        N by M array containing the components of the off nadir angle (radians) in the along track direction. Each element represents a different scanline/pixel. Rows are snapshots in time; each is associated with a different camera position and orientation.
+    fov : array-like
+        Two element array with the field of views (radians) of the scanline or scanline/pixel in both the across and along track directions.
+    cam : ndarray
+        3 by N array containing ECEF coordinates (meters) of the camera. 
+    rot_mat : ndarray
+        3 by 3 by N array containing the orientation of the camera with respect to the ECEF frame in the form of normalized rotation matrices. By convention, the second column is the vector in the direction of the instantaneous velocity, the third column is the vector along the optical axis pointing towards the scanline, and the first column is the cross product of the second and third columns.
+
+    Returns 
+    -------
+    scanline_area : ndarray
+        N by M array of the surface area of each projected scanline/pixel.
+    lat_long : ndarray
+        2 by 4*N by M array of the latitudes and longitudes (degrees) of the vertices of each scanline/pixel. 
+
+    Notes
+    -----
+    Extends `rot_mat` and `cam` so that they are 3 by 4*N and 3 by 3 by 4*N respectively. This is to assign an entry to each vertex. 
+    Uses WGS84 for ECEF and latitude/longitude coordinates.
+    '''
 
     # extends rot_mat and cam since there are 4 vertices per angle
     rot_mat_new = np.empty([3,3,4*rot_mat.shape[2]])
@@ -82,8 +178,9 @@ def get_area(across, along, fov, cam, rot_mat):
     vertices = get_vertices(across, along, fov, cam_new, rot_mat_new)
 
     # calculates latitude and longitude
-    lat_long = get_lat_long(vertices, rot_mat_new)
+    lat_long = get_lat_long(vertices)
     
+    # computes surface area of earth bounded by each set of vertices
     scanline_area = np.empty((along.shape[0],along.shape[1]))
 
     for i in range(scanline_area.shape[0]):
@@ -93,6 +190,40 @@ def get_area(across, along, fov, cam, rot_mat):
     return scanline_area, lat_long
 
 def get_px_area(across, along, fov, px_count, cam, rot_mat): 
+    '''
+    Returns areas and vertice coordinates of each pixel in a scanline 
+    
+    Given the scanline off nadir angles and camera parameters, computes the off nadir angles of each pixel and finds their area and vertice coordinates using `get_area`.
+
+    Parameters
+    ----------
+    across : ndarray
+        Array of length N containing the components of the off nadir angle (radians) in the across track direction. Each element represents a different scanline. 
+    along : ndarray
+        Array of length N containing the components of the off nadir angle (radians) in the along track direction. Each element represents a different scanline. 
+    fov : array-like
+        Two element array with the field of views (radians) of the scanline or scanline in both the across and along track directions.
+    px_count : int 
+        The number of pixels in a scanline. 
+    cam : ndarray
+        3 by N array containing ECEF coordinates (meters) of the camera. 
+    rot_mat : ndarray
+        3 by 3 by N array containing the orientation of the camera with respect to the ECEF frame in the form of normalized rotation matrices. By convention, the second column is the vector in the direction of the instantaneous velocity, the third column is the vector along the optical axis pointing towards the scanline, and the first column is the cross product of the second and third columns.
+
+
+    Returns
+    -------
+    ndarray
+        N by `px_count` array of the surface area of each projected pixel.
+    ndarray
+        2 by 4*N by `px_count` array of the latitudes and longitudes (degrees) of the vertices of each pixel. 
+
+    Notes
+    -----
+    It is assumed that px_count is even.
+    Uses WGS84 for ECEF coordinates.
+    '''
+
     # off nadir angles for each pixel
     px_along = np.repeat(along[:,np.newaxis], px_count, axis=1)
     px_across = np.repeat(across[:,np.newaxis], px_count, axis=1)
