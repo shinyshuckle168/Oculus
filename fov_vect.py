@@ -12,18 +12,18 @@ def get_intersections(across, along, cam, rot_mat):
     Parameters
     ----------
     across : ndarray
-        4*N by M array containing the components of the off nadir angle (radians) in the across track direction. Each element represents a different vertex. Rows are snapshots in time; each is associated with a different camera position and orientation.
+        N by 4*M array containing the components of the off nadir angle (radians) in the across track direction. Each element represents a different vertex. Rows are snapshots in time; each is associated with a different camera position and orientation.
     along : ndarray
-        4*N by M array containing the components of the off nadir angle (radians) in the along track direction. Each element represents a different vertex. Rows are snapshots in time; each is associated with a different camera position and orientation.
+        N by 4*M array containing the components of the off nadir angle (radians) in the along track direction. Each element represents a different vertex. Rows are snapshots in time; each is associated with a different camera position and orientation.
     cam : ndarray
-        3 by 4*N array containing ECEF coordinates (meters) of the camera. 
+        3 by N array containing ECEF coordinates (meters) of the camera. 
     rot_mat : ndarray
-        3 by 3 by 4*N array containing the orientation of the camera with respect to the ECEF frame in the form of normalized rotation matrices. By convention, the second column is the vector in the direction of the instantaneous velocity, the third column is the vector along the optical axis pointing towards the scanline, and the first column is the cross product of the second and third columns.
+        3 by 3 by N array containing the orientation of the camera with respect to the ECEF frame in the form of normalized rotation matrices. By convention, the second column is the vector in the direction of the instantaneous velocity, the third column is the vector along the optical axis pointing towards the scanline, and the first column is the cross product of the second and third columns.
 
     Returns
     -------
     ndarray
-        3 by 4*N by M array of the vertices of each scanline/pixel in ECEF coordinates (meters).
+        3 by N by 4*M array of the vertices of each scanline/pixel in ECEF coordinates (meters).
     
     Notes
     -----
@@ -86,18 +86,18 @@ def get_vertices(across, along, fov, cam, rot_mat):
     x3_along =  along + fov[1]/2
 
     # across list
-    vertices_across = np.empty((4*x0_across.shape[0],x0_across.shape[1]))
-    vertices_across[0::4,:] = x0_across
-    vertices_across[1::4,:] = x1_across
-    vertices_across[2::4,:] = x2_across
-    vertices_across[3::4,:] = x3_across
+    vertices_across = np.empty((x0_across.shape[0],4*x0_across.shape[1]))
+    vertices_across[:, 0::4] = x0_across
+    vertices_across[:, 1::4] = x1_across
+    vertices_across[:, 2::4] = x2_across
+    vertices_across[:, 3::4] = x3_across
 
     # along list
-    vertices_along = np.empty((4*x0_along.shape[0],x0_along.shape[1]))
-    vertices_along[0::4,:] = x0_along
-    vertices_along[1::4,:] = x1_along
-    vertices_along[2::4,:] = x2_along
-    vertices_along[3::4,:] = x3_along
+    vertices_along = np.empty((x0_along.shape[0],4*x0_along.shape[1]))
+    vertices_along[:, 0::4] = x0_along
+    vertices_along[:, 1::4] = x1_along
+    vertices_along[:, 2::4] = x2_along
+    vertices_along[:, 3::4] = x3_along
 
 
     vertices = get_intersections(vertices_across, vertices_along, cam, rot_mat)
@@ -105,7 +105,7 @@ def get_vertices(across, along, fov, cam, rot_mat):
     # transforms points from wrt camera to wrt earth
     return np.einsum('ijk,jkb->ikb', rot_mat, vertices)
 
-def get_lat_long(vertices, rot_mat):
+def get_lat_long(vertices):
     '''
     Computes latitude and longitude coordinates of the vertices found by `get_vertices`.
 
@@ -129,9 +129,9 @@ def get_lat_long(vertices, rot_mat):
     '''
 
     # converts cartesian coordinates to latitude and longitude
-    lat, long, alt = transform(INPROJ,OUTPROJ,vertices_prime[0].flatten(), vertices_prime[1].flatten(), vertices_prime[2].flatten())
-    lat = lat.reshape(vertices_prime.shape[1], vertices_prime.shape[2])
-    long = long.reshape(vertices_prime.shape[1], vertices_prime.shape[2])
+    lat, long, alt = transform(INPROJ,OUTPROJ, vertices[0].flatten(), vertices[1].flatten(), vertices[2].flatten())
+    lat = lat.reshape(vertices.shape[1], vertices.shape[2])
+    long = long.reshape(vertices.shape[1], vertices.shape[2])
 
     return np.stack((lat,long))
 
@@ -166,33 +166,19 @@ def get_area(across, along, fov, cam, rot_mat):
     Extends `rot_mat` and `cam` so that they are 3 by 4*N and 3 by 3 by 4*N respectively. This is to assign an entry to each vertex. 
     Uses WGS84 for ECEF and latitude/longitude coordinates.
     '''
-
-    # extends rot_mat and cam since there are 4 vertices per angle
-    rot_mat_new = np.empty([3,3,4*rot_mat.shape[2]])
-    rot_mat_new[:,:,0::4] = rot_mat
-    rot_mat_new[:,:,1::4] = rot_mat
-    rot_mat_new[:,:,2::4] = rot_mat
-    rot_mat_new[:,:,3::4] = rot_mat
-
-    cam_new = np.empty([3,4*cam.shape[1]])
-    cam_new[:,0::4] = cam
-    cam_new[:,1::4] = cam
-    cam_new[:,2::4] = cam
-    cam_new[:,3::4] = cam
-
     # calculates vertice positions
-    vertices = get_vertices(across, along, fov, cam_new, rot_mat_new)
+    vertices = get_vertices(across, along, fov, cam, rot_mat)
 
     # calculates latitude and longitude
-    lat_long = get_lat_long(vertices, rot_mat_new)
+    lat_long = get_lat_long(vertices)
     
     # computes surface area of earth bounded by each set of vertices
     scanline_area = np.empty((along.shape[0],along.shape[1]))
 
     for i in range(scanline_area.shape[0]):
         for j in range(scanline_area.shape[1]):
-            scanline_area[i,j] = GEOD.polygon_area_perimeter(lat_long[1,i*4:i*4+4,j], lat_long[0,i*4:i*4+4,j])[0]    
-
+            #scanline_area[i,j] = GEOD.polygon_area_perimeter(lat_long[1,j,i*4:i*4+4], lat_long[0,j,i*4:i*4+4])[0]    
+            scanline_area[i,j] = GEOD.polygon_area_perimeter(lat_long[1,i,j*4:j*4+4], lat_long[0,i,j*4:j*4+4])[0]    
     return scanline_area, lat_long
 
 def get_px_area(across, along, fov, px_count, cam, rot_mat): 
@@ -208,7 +194,7 @@ def get_px_area(across, along, fov, px_count, cam, rot_mat):
     along : ndarray
         Array of length N containing the components of the off nadir angle (radians) in the along track direction. Each element represents a different scanline. 
     fov : array-like
-        Two element array with the field of views (radians) of the scanline or scanline in both the across and along track directions.
+        Two element array with the field of views (radians) of the scanline in both the across and along track directions.
     px_count : int 
         The number of pixels in a scanline. 
     cam : ndarray
@@ -236,7 +222,7 @@ def get_px_area(across, along, fov, px_count, cam, rot_mat):
     px_across += ((np.arange(px_count)-px_count/2+0.5)*fov[1])[np.newaxis,:]
 
     # calculates pixel areas using get_area
-    return get_area(px_along, px_across, fov, cam, rot_mat)[0]
+    return get_area(px_across, px_along, fov, cam, rot_mat)[0]
 
 global A_diag, GEOD, INPROJ, OUTPROJ
 

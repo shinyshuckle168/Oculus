@@ -21,15 +21,15 @@ at_nadir_area = get_area(np.array([0*math.pi/180])[:,np.newaxis], np.array([0*ma
 off_nadir_cam = np.repeat(cam[:, np.newaxis], n, axis=1)
 off_nadir_rot_mat = np.repeat(rot_mat[:, :, np.newaxis], n, axis=2)
 distortion_arr = np.empty([n,n])
-#distortion_arr = get_area(np.repeat(off_nadir_across_arr[:, np.newaxis], n, axis=1), np.repeat(off_nadir_across_arr[:, np.newaxis], n, axis=1).T, [fov_across, fov_along], off_nadir_cam, off_nadir_rot_mat)[0]
-
-get_area(np.repeat(off_nadir_across_arr[:, np.newaxis], n, axis=1), np.repeat(off_nadir_across_arr[:, np.newaxis], n, axis=1).T, [fov_across, fov_along], off_nadir_cam, off_nadir_rot_mat)[0]
+distortion_arr = get_area(np.repeat(off_nadir_across_arr[:, np.newaxis], n, axis=1), np.repeat(off_nadir_across_arr[:, np.newaxis], n, axis=1).T, [fov_across, fov_along], off_nadir_cam, off_nadir_rot_mat)[0]
+print(at_nadir_area)
+#get_area(np.repeat(off_nadir_across_arr[:, np.newaxis], n, axis=1), np.repeat(off_nadir_across_arr[:, np.newaxis], n, axis=1).T, [fov_across, fov_along], off_nadir_cam, off_nadir_rot_mat)[0]
 
 # percentage difference between at nadir and off nadir area
 distortion_arr = (distortion_arr-at_nadir_area)/at_nadir_area*100
 
 print("Time taken: "+ str(round(time.time()-start,4)) + "s")
-'''
+
 #plotting off nadir angle against percent area difference in scanline
 fig = plt.figure()
 ax = fig.add_subplot(111, projection="3d")
@@ -40,4 +40,3 @@ ax.set_xlabel('Across Angle (\N{DEGREE SIGN})')
 ax.set_ylabel('Along Angle (\N{DEGREE SIGN})')
 ax.set_zlabel('Percent Difference (%)')
 plt.show()
-'''
